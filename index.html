@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sales History — Sir Ramos Drugstore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+
+<style>
+  :root {
+    --bg: #F5F2EC; --surface: #FFFFFF; --surface2: #FAFAF7; --border: #E8E3DA;
+    --text: #1A1714; --text2: #6B6560; --text3: #A09994;
+    --accent: #C4622D; --accent-light: #F5E8DF;
+    --green: #2D7A4F; --green-light: #DFF0E8;
+    --red: #B83232; --red-light: #FAEAEA;
+    --yellow: #9A7A1A; --yellow-light: #FBF4DC;
+    --radius: 12px; --radius-sm: 8px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; min-height: 100vh; }
+  button, input, select { font-family: inherit; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 24px; background:var(--surface); border-bottom:1px solid var(--border); }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand-mark { width:34px; height:34px; background:var(--accent); border-radius:8px; display:flex; align-items:center; justify-content:center; }
+  .brand-name { font-family:'DM Serif Display', serif; font-size:21px; letter-spacing:-0.3px; }
+  .brand-sub { font-size:11px; color:var(--text3); margin-top:-2px; }
+  .link-btn { background:none; border:none; color:var(--text2); font-size:12px; cursor:pointer; text-decoration:underline; }
+
+  .wrap { max-width:1100px; margin:0 auto; padding:20px 24px 60px; }
+
+  .panel { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px 18px; margin-bottom:16px; }
+  .controls { display:flex; flex-wrap:wrap; gap:18px 28px; align-items:flex-end; }
+  .ctl-label { font-size:11px; font-weight:600; color:var(--text2); margin-bottom:5px; }
+  .seg { display:inline-flex; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:2px; }
+  .seg button { border:none; background:transparent; padding:6px 13px; font-size:12px; font-weight:600; color:var(--text2); border-radius:6px; cursor:pointer; }
+  .seg button.on { background:var(--accent); color:#fff; }
+  .chk { display:inline-flex; align-items:center; gap:6px; font-size:13px; margin-right:12px; cursor:pointer; }
+  .chk input { width:16px; height:16px; accent-color: var(--accent); }
+  input[type=month] { padding:6px 8px; border:1px solid var(--border); border-radius:8px; font-size:13px; background:#fff; }
+
+  .btn { padding:9px 18px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#fff; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .btn.ghost { background:transparent; color:var(--text2); border-color:var(--border); }
+  .btn.small { padding:6px 12px; font-size:12px; }
+
+  .progress { display:none; margin-top:14px; }
+  .progress.on { display:block; }
+  .bar { height:6px; background:var(--bg); border-radius:6px; overflow:hidden; }
+  .bar > div { height:100%; width:0; background:var(--green); transition:width .25s; }
+  .progress-text { font-size:12px; color:var(--text2); margin-top:6px; }
+
+  .notice { font-size:12px; padding:9px 12px; border-radius:8px; margin-bottom:14px; display:none; }
+  .notice.on { display:block; }
+  .notice.warn { background:var(--yellow-light); color:var(--yellow); }
+  .notice.err { background:var(--red-light); color:var(--red); }
+  .notice.ok { background:var(--green-light); color:var(--green); }
+
+  .tabs { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+  .tabs .grow { flex:1; }
+
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px,1fr)); gap:12px; margin-bottom:16px; }
+  .kpi { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; }
+  .kpi .k { font-size:11px; font-weight:600; color:var(--text2); }
+  .kpi .v { font-family:'DM Serif Display', serif; font-size:26px; margin-top:2px; letter-spacing:-0.4px; }
+  .kpi .s { font-size:11px; color:var(--text3); }
+
+  .chart { display:flex; align-items:flex-end; gap:6px; height:150px; padding:6px 0 0; overflow-x:auto; }
+  .col { flex:1 0 34px; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; min-width:34px; }
+  .col .stack { width:100%; max-width:46px; display:flex; flex-direction:column-reverse; border-radius:4px 4px 0 0; overflow:hidden; }
+  .col .seg-main { background:var(--accent); }
+  .col .seg-branch { background:var(--green); }
+  .col .lbl { font-size:10px; color:var(--text3); margin-top:4px; white-space:nowrap; }
+  .legend { display:flex; gap:14px; font-size:11px; color:var(--text2); margin-top:8px; }
+  .legend i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; }
+
+  .tbl-wrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:right; font-size:11px; font-weight:600; color:var(--text2); padding:8px 10px; border-bottom:1px solid var(--border); white-space:nowrap; background:var(--surface2); position:sticky; top:0; }
+  th:first-child, td:first-child { text-align:left; }
+  td { text-align:right; padding:9px 10px; border-bottom:1px solid var(--border); white-space:nowrap; font-variant-numeric:tabular-nums; }
+  tr.sub td { font-weight:700; background:var(--surface2); }
+  tr.total td { font-weight:700; border-top:2px solid var(--text); }
+  td.muted { color:var(--text3); }
+  .tag { font-size:10px; font-weight:600; color:var(--yellow); background:var(--yellow-light); border-radius:10px; padding:1px 7px; margin-left:6px; }
+  td.name { white-space:normal; min-width:200px; }
+  .search { padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:13px; width:240px; max-width:100%; background:#fff; }
+  .hint { font-size:12px; color:var(--text3); margin-top:10px; }
+  .empty { text-align:center; color:var(--text3); padding:36px 12px; }
+  .hidden { display:none !important; }
+
+  #login { position:fixed; inset:0; background:var(--bg); z-index:50; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .login-card { background:#fff; border-radius:16px; padding:30px 26px; width:100%; max-width:360px; box-shadow:0 8px 32px rgba(0,0,0,0.10); }
+  .login-card label { display:block; font-size:11px; font-weight:600; color:var(--text2); margin:12px 0 5px; }
+  .login-card input { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:14px; }
+  .login-card .btn { width:100%; margin-top:18px; padding:11px; }
+  .login-err { color:var(--red); font-size:12px; margin-top:10px; display:none; }
+
+  @media (max-width:640px) { .wrap { padding:14px 12px 50px; } .topbar { padding:12px; } }
+  @media (prefers-reduced-motion: reduce) { .bar > div { transition:none; } }
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="login-card">
+    <div class="brand" style="margin-bottom:6px;">
+      <div class="brand-mark"><svg width="18" height="18" viewBox="0 0 16 16" fill="none"><rect x="2" y="9" width="3" height="5" rx="1" fill="#fff"/><rect x="6.5" y="5" width="3" height="9" rx="1" fill="#fff" opacity=".8"/><rect x="11" y="2" width="3" height="12" rx="1" fill="#fff" opacity=".6"/></svg></div>
+      <span class="brand-name">Sales History</span>
+    </div>
+    <div style="font-size:13px;color:var(--text2);">Sir Ramos Drugstore — sign in with your Stockr account</div>
+    <label for="l-email">Email</label>
+    <input id="l-email" type="email" autocomplete="username">
+    <label for="l-pass">Password</label>
+    <input id="l-pass" type="password" autocomplete="current-password">
+    <div class="login-err" id="l-err"></div>
+    <button class="btn" id="l-btn" onclick="doLogin()">Sign in</button>
+  </div>
+</div>
+
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-mark"><svg width="18" height="18" viewBox="0 0 16 16" fill="none"><rect x="2" y="9" width="3" height="5" rx="1" fill="#fff"/><rect x="6.5" y="5" width="3" height="9" rx="1" fill="#fff" opacity=".8"/><rect x="11" y="2" width="3" height="12" rx="1" fill="#fff" opacity=".6"/></svg></div>
+    <div><div class="brand-name">Sales History</div><div class="brand-sub">Monthly sales from Loyverse</div></div>
+  </div>
+  <button class="link-btn" onclick="signOut()">Sign out</button>
+</div>
+
+<div class="wrap">
+
+  <div class="notice" id="notice"></div>
+
+  <div class="panel">
+    <div class="controls">
+      <div>
+        <div class="ctl-label">Gather from</div>
+        <label class="chk"><input type="checkbox" id="g-main" checked> Main</label>
+        <label class="chk"><input type="checkbox" id="g-branch" checked> Branch</label>
+      </div>
+      <div>
+        <div class="ctl-label">Period</div>
+        <div class="seg" id="range-seg">
+          <button data-r="year" class="on" onclick="setRange('year')">This year</button>
+          <button data-r="all" onclick="setRange('all')">Since first use</button>
+          <button data-r="custom" onclick="setRange('custom')">Custom</button>
+        </div>
+      </div>
+      <div id="custom-box" class="hidden">
+        <div class="ctl-label">From / To</div>
+        <input type="month" id="r-from" onchange="renderAll()"> <input type="month" id="r-to" onchange="renderAll()">
+      </div>
+      <div>
+        <label class="chk"><input type="checkbox" id="g-refresh"> Re-download months already saved</label>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;">
+        <button class="btn ghost" id="cancel-btn" onclick="cancelGather()" style="display:none">Stop</button>
+        <button class="btn" id="gather-btn" onclick="gather()">Gather sales</button>
+      </div>
+    </div>
+    <div class="progress" id="progress">
+      <div class="bar"><div id="bar-fill"></div></div>
+      <div class="progress-text" id="progress-text"></div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="seg" id="view-seg">
+      <button data-v="monthly" class="on" onclick="setView('monthly')">Monthly sales</button>
+      <button data-v="items" onclick="setView('items')">Items sold</button>
+    </div>
+    <div class="seg" id="store-seg">
+      <button data-s="main" onclick="setStore('main')">Main</button>
+      <button data-s="branch" onclick="setStore('branch')">Branch</button>
+      <button data-s="both" class="on" onclick="setStore('both')">Combined</button>
+    </div>
+    <div class="grow"></div>
+    <button class="btn ghost small" onclick="exportCSV()">Download CSV</button>
+  </div>
+
+  <div id="view-monthly">
+    <div class="kpis" id="kpis"></div>
+    <div class="panel">
+      <div class="chart" id="chart"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="panel tbl-wrap" id="month-table"></div>
+  </div>
+
+  <div id="view-items" class="hidden">
+    <div class="panel">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+        <input class="search" id="item-search" placeholder="Search items…" oninput="renderItems()">
+        <span class="hint" style="margin:0" id="items-hint"></span>
+      </div>
+      <div class="tbl-wrap" id="items-table"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// CONFIG — same Firebase project and Loyverse proxy as Stockr
+// ═══════════════════════════════════════════════════════
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBPkFBsulcCW1pDhVLrp1ht0vgEIkuMW4U",
+  authDomain: "orderkoto-65fb6.firebaseapp.com",
+  databaseURL: "https://orderkoto-65fb6-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "orderkoto-65fb6",
+  storageBucket: "orderkoto-65fb6.firebasestorage.app",
+  messagingSenderId: "684809442563",
+  appId: "1:684809442563:web:84ecfeda5a4b9cef68c536"
+};
+const LOYVERSE_API = 'https://stockrloyvers.jhudielvendivil.workers.dev/v1.0';
+const SETTINGS_PATH = 'loyverse_settings';   // { token, storeMap: {main, branch} } — saved from Stockr
+const HISTORY_PATH  = 'sales_history';       // new node this app writes to
+const STORES = ['main', 'branch'];
+const STORE_NAMES = { main: 'Main', branch: 'Branch' };
+const MAX_MONTHS_BACK = 120;                 // "since first use" never walks back further than 10 years
+const EMPTY_MONTHS_TO_STOP = 6;              // stop walking back after this many empty months in a row
+
+// ═══════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════
+let db = null;
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const now = new Date();
+const CUR_KEY = ymKey(now.getFullYear(), now.getMonth());
+const SH = { main: { summary: {}, items: {}, itemsLoaded: false }, branch: { summary: {}, items: {}, itemsLoaded: false } };
+let itemNames = {};          // variant id → name
+let namesLoaded = false;
+let rangeMode = 'year';
+let viewMode = 'monthly';
+let storeView = 'both';
+let busy = false, aborted = false, warnedSave = false;
+
+// ═══════════════════════════════════════════════════════
+// SMALL HELPERS
+// ═══════════════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
+const peso = n => '₱' + (Number(n) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const num = n => (Number(n) || 0).toLocaleString('en-PH');
+
+function ymKey(y, m) { return y + '-' + String(m + 1).padStart(2, '0'); }
+function ymParse(k) { const [y, m] = k.split('-').map(Number); return { y, m: m - 1 }; }
+function ymLabel(k) { const { y, m } = ymParse(k); return MONTHS[m] + ' ' + y; }
+function ymShift(k, delta) { const { y, m } = ymParse(k); const d = new Date(y, m + delta, 1); return ymKey(d.getFullYear(), d.getMonth()); }
+function listMonths(from, to) {
+  const out = []; let k = from;
+  while (k <= to && out.length < 1200) { out.push(k); k = ymShift(k, 1); }
+  return out;
+}
+function monthBounds(k) {
+  const { y, m } = ymParse(k);
+  const a = new Date(y, m, 1, 0, 0, 0, 0);
+  const b = new Date(y, m + 1, 1, 0, 0, 0, 0);
+  return { min: a.toISOString(), max: new Date(b.getTime() - 1).toISOString() };
+}
+
+function showNotice(msg, kind) {
+  const el = $('notice');
+  if (!msg) { el.className = 'notice'; el.textContent = ''; return; }
+  el.className = 'notice on ' + (kind || 'warn');
+  el.textContent = msg;
+}
+
+// ═══════════════════════════════════════════════════════
+// AUTH + FIREBASE
+// ═══════════════════════════════════════════════════════
+function initFirebase() {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  db = firebase.database();
+  firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(() => {
+    firebase.auth().onAuthStateChanged(user => {
+      if (user) { $('login').classList.add('hidden'); startApp(); }
+      else { $('login').classList.remove('hidden'); }
+    });
+  });
+}
+
+async function doLogin() {
+  const email = $('l-email').value.trim(), pass = $('l-pass').value;
+  const err = $('l-err'), btn = $('l-btn');
+  if (!email || !pass) { err.textContent = 'Enter your email and password.'; err.style.display = 'block'; return; }
+  btn.disabled = true; btn.textContent = 'Signing in…'; err.style.display = 'none';
+  try {
+    const cred = await firebase.auth().signInWithEmailAndPassword(email, pass);
+    await cred.user.getIdToken(true);
+  } catch (e) {
+    err.textContent = e.message; err.style.display = 'block';
+  }
+  btn.disabled = false; btn.textContent = 'Sign in';
+}
+function signOut() { firebase.auth().signOut().then(() => location.reload()); }
+
+let started = false;
+async function startApp() {
+  if (started) return; started = true;
+  // saved summaries load first (small); per-item data loads when you open "Items sold"
+  loadLocalSummaries();
+  renderAll();
+  await Promise.all(STORES.map(async st => {
+    try {
+      const snap = await db.ref(`${HISTORY_PATH}/${st}/summary`).once('value');
+      const val = snap.val() || {};
+      Object.assign(SH[st].summary, val);
+      saveLocalSummaries();
+    } catch (e) { noteSaveProblem(e); }
+  }));
+  renderAll();
+}
+
+function noteSaveProblem(e) {
+  if (warnedSave) return; warnedSave = true;
+  const denied = /permission/i.test(e && e.message || '');
+  showNotice(denied
+    ? 'Firebase blocked the "sales_history" node, so results are kept on this device only. Add a rule for sales_history (same as loyverse_settings) to save them to the cloud.'
+    : 'Could not reach Firebase (' + (e && e.message || e) + '). Results are kept on this device for now.', 'warn');
+}
+
+// local cache of the monthly summaries (small) so the page opens instantly
+function loadLocalSummaries() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('sales_history_summary_v1') || '{}');
+    STORES.forEach(st => { if (raw[st]) Object.assign(SH[st].summary, raw[st]); });
+  } catch (e) { /* ignore */ }
+}
+function saveLocalSummaries() {
+  try { localStorage.setItem('sales_history_summary_v1', JSON.stringify({ main: SH.main.summary, branch: SH.branch.summary })); } catch (e) { /* ignore */ }
+}
+
+async function loadSettings() {
+  const snap = await db.ref(SETTINGS_PATH).once('value');
+  return snap.val() || { token: '', storeMap: {} };
+}
+
+// ═══════════════════════════════════════════════════════
+// LOYVERSE FETCH (with rate-limit retry)
+// ═══════════════════════════════════════════════════════
+async function lvGet(path, qs, token) {
+  let lastErr = null;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    if (aborted) throw new Error('stopped');
+    let res;
+    try {
+      res = await fetch(`${LOYVERSE_API}/${path}?${qs}`, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (e) { lastErr = e; await sleep(1500 * (attempt + 1)); continue; }
+    if (res.status === 429) {
+      const wait = Number(res.headers.get('Retry-After')) || 6;
+      setProgressText(`Loyverse asked us to slow down — waiting ${wait}s…`);
+      await sleep(wait * 1000); continue;
+    }
+    if (res.status === 401 || res.status === 403) throw new Error('Loyverse rejected the token. Save it again from Stockr (Sync Loyverse).');
+    if (res.status >= 500) { lastErr = new Error('Loyverse error ' + res.status); await sleep(1500 * (attempt + 1)); continue; }
+    if (!res.ok) throw new Error('Loyverse error ' + res.status);
+    return res.json();
+  }
+  throw lastErr || new Error('Loyverse is busy — try again in a minute.');
+}
+
+// ═══════════════════════════════════════════════════════
+// RECEIPT AGGREGATION
+// Net sales = receipt total − tax (after discounts). Refund receipts are
+// subtracted. Cancelled receipts are ignored. Gross profit = net − item cost.
+// ═══════════════════════════════════════════════════════
+function newAcc() {
+  return { summary: { r: 0, rf: 0, gross: 0, disc: 0, net: 0, cost: 0, units: 0 }, items: {}, names: {} };
+}
+function safeKey(k) { return String(k).replace(/[.#$\[\]\/]/g, '_'); }
+
+function addReceipt(acc, r) {
+  if (!r || r.cancelled_at) return;
+  const refund = r.receipt_type === 'REFUND';
+  const sign = refund ? -1 : 1;
+  const S = acc.summary;
+  if (refund) S.rf += 1; else S.r += 1;
+
+  const total = Math.abs(Number(r.total_money) || 0);
+  const tax = Math.abs(Number(r.total_tax) || 0);
+  const disc = Math.abs(Number(r.total_discount) || 0);
+  const net = total - tax;
+  S.net += sign * net;
+  S.disc += sign * disc;
+  S.gross += sign * (net + disc);
+
+  (r.line_items || []).forEach(li => {
+    const qty = Math.abs(Number(li.quantity) || 0);
+    const cost = Math.abs(Number(li.cost_total)) || (Math.abs(Number(li.cost) || 0) * qty);
+    const lineNet = Math.abs(Number(li.total_money) || 0);
+    S.cost += sign * cost;
+    S.units += sign * qty;
+    const key = safeKey(li.variant_id || li.item_id || ('n_' + (li.item_name || 'unknown')));
+    const it = acc.items[key] || (acc.items[key] = { q: 0, s: 0 });
+    it.q += sign * qty;
+    it.s += sign * lineNet;
+    if (li.item_name) acc.names[key] = li.variant_name ? `${li.item_name} (${li.variant_name})` : li.item_name;
+  });
+}
+
+function finishAcc(acc) {
+  const S = acc.summary;
+  ['gross', 'disc', 'net', 'cost', 'units'].forEach(k => { S[k] = r2(S[k]); });
+  const items = {};
+  Object.entries(acc.items).forEach(([k, v]) => {
+    const q = r2(v.q), s = r2(v.s);
+    if (q !== 0 || s !== 0) items[k] = { q, s };
+  });
+  return { summary: S, items, names: acc.names };
+}
+
+// ═══════════════════════════════════════════════════════
+// GATHER
+// ═══════════════════════════════════════════════════════
+function setRange(mode) {
+  rangeMode = mode;
+  document.querySelectorAll('#range-seg button').forEach(b => b.classList.toggle('on', b.dataset.r === mode));
+  $('custom-box').classList.toggle('hidden', mode !== 'custom');
+  if (mode === 'custom' && !$('r-from').value) {
+    $('r-from').value = `${now.getFullYear()}-01`;
+    $('r-to').value = CUR_KEY;
+  }
+  renderAll();
+}
+
+function setProgress(pct) { $('bar-fill').style.width = Math.max(0, Math.min(100, pct)) + '%'; }
+function setProgressText(t) { $('progress-text').textContent = t; }
+function cancelGather() { aborted = true; setProgressText('Stopping…'); }
+
+function plannedMonths() {
+  if (rangeMode === 'year') return listMonths(`${now.getFullYear()}-01`, CUR_KEY);
+  if (rangeMode === 'custom') {
+    const f = $('r-from').value, t = $('r-to').value;
+    if (!f || !t || f > t) return [];
+    return listMonths(f, t > CUR_KEY ? CUR_KEY : t);
+  }
+  return null; // "since first use" walks backwards instead
+}
+
+async function gather() {
+  if (busy) return;
+  const stores = STORES.filter(s => $('g-' + s).checked);
+  if (!stores.length) return showNotice('Tick Main, Branch or both before gathering.', 'warn');
+  const plan = plannedMonths();
+  if (plan && !plan.length) return showNotice('Pick a valid From / To month.', 'warn');
+
+  showNotice('');
+  busy = true; aborted = false;
+  $('gather-btn').disabled = true; $('cancel-btn').style.display = '';
+  $('progress').classList.add('on'); setProgress(0); setProgressText('Connecting to Loyverse…');
+
+  try {
+    const s = await loadSettings();
+    if (!s.token) throw new Error('No Loyverse token found. Open Stockr → Sync Loyverse and save your token first.');
+    const refresh = $('g-refresh').checked;
+    let done = 0;
+    const totalSteps = (plan ? plan.length : MAX_MONTHS_BACK) * stores.length;
+
+    for (const st of stores) {
+      const storeId = s.storeMap && s.storeMap[st];
+      if (!storeId) throw new Error(`No Loyverse store is mapped to ${STORE_NAMES[st]}. Map it in Stockr → Sync Loyverse.`);
+      const ctx = { token: s.token, storeId, store: st, refresh };
+
+      if (plan) {
+        for (const ym of plan) {
+          await gatherMonth(ctx, ym, `${STORE_NAMES[st]} · ${ymLabel(ym)}`);
+          done++; setProgress(done / totalSteps * 100);
+          renderAll();
+        }
+      } else {
+        // since first use: walk back from this month until several empty months in a row
+        let ym = CUR_KEY, empty = 0, foundAny = false, steps = 0;
+        while (steps < MAX_MONTHS_BACK) {
+          const n = await gatherMonth(ctx, ym, `${STORE_NAMES[st]} · ${ymLabel(ym)}`);
+          steps++; done++;
+          setProgress(done / totalSteps * 100);
+          if (n > 0) { foundAny = true; empty = 0; } else { empty++; }
+          renderAll();
+          if (empty >= EMPTY_MONTHS_TO_STOP) break;
+          ym = ymShift(ym, -1);
+        }
+        if (!foundAny) showNotice(`No receipts found for ${STORE_NAMES[st]}.`, 'warn');
+        done = Math.max(done, Math.round(totalSteps / stores.length * (stores.indexOf(st) + 1)));
+      }
+    }
+    setProgress(100);
+    setProgressText('Done.');
+    showNotice('Sales gathered and saved.', 'ok');
+  } catch (e) {
+    if (e.message === 'stopped') showNotice('Stopped. Months already finished are saved.', 'warn');
+    else showNotice(e.message || String(e), 'err');
+  } finally {
+    busy = false;
+    $('gather-btn').disabled = false; $('cancel-btn').style.display = 'none';
+    setTimeout(() => { if (!busy) $('progress').classList.remove('on'); }, 2500);
+    renderAll();
+  }
+}
+
+// returns number of sales receipts found in that month
+async function gatherMonth(ctx, ym, label) {
+  const have = SH[ctx.store].summary[ym];
+  if (have && ym < CUR_KEY && !ctx.refresh) return have.r;     // finished month already saved
+
+  const { min, max } = monthBounds(ym);
+  const acc = newAcc();
+  let cursor = null, seen = 0;
+  do {
+    const qs = new URLSearchParams({ limit: 250, store_id: ctx.storeId, created_at_min: min, created_at_max: max });
+    if (cursor) qs.set('cursor', cursor);
+    const data = await lvGet('receipts', qs, ctx.token);
+    const list = data.receipts || [];
+    list.forEach(r => addReceipt(acc, r));
+    seen += list.length;
+    setProgressText(`${label} — ${num(seen)} receipts read…`);
+    cursor = data.cursor || null;
+  } while (cursor);
+
+  const out = finishAcc(acc);
+  if (out.summary.r === 0 && out.summary.rf === 0) return 0;     // nothing sold; don't store empty months
+
+  out.summary.at = Date.now();                                   // when this month was last downloaded
+  SH[ctx.store].summary[ym] = out.summary;
+  SH[ctx.store].items[ym] = out.items;
+  saveLocalSummaries();
+  await persistMonth(ctx.store, ym, out);
+  return out.summary.r;
+}
+
+async function persistMonth(st, ym, out) {
+  try {
+    await db.ref(`${HISTORY_PATH}/${st}/summary/${ym}`).set(out.summary);
+    await db.ref(`${HISTORY_PATH}/${st}/items/${ym}`).set(out.items);
+    const fresh = {};
+    Object.entries(out.names).forEach(([k, n]) => { if (itemNames[k] !== n) fresh[k] = n; });
+    if (Object.keys(fresh).length) {
+      Object.assign(itemNames, fresh);
+      const keys = Object.keys(fresh);
+      for (let i = 0; i < keys.length; i += 400) {
+        const part = {};
+        keys.slice(i, i + 400).forEach(k => { part[k] = fresh[k]; });
+        await db.ref(`${HISTORY_PATH}/names`).update(part);
+      }
+    }
+  } catch (e) { noteSaveProblem(e); Object.assign(itemNames, out.names); }
+}
+
+// ═══════════════════════════════════════════════════════
+// VIEW STATE
+// ═══════════════════════════════════════════════════════
+function setView(v) {
+  viewMode = v;
+  document.querySelectorAll('#view-seg button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  $('view-monthly').classList.toggle('hidden', v !== 'monthly');
+  $('view-items').classList.toggle('hidden', v !== 'items');
+  if (v === 'items') ensureItemsLoaded().then(renderItems);
+  else renderAll();
+}
+function setStore(s) {
+  storeView = s;
+  document.querySelectorAll('#store-seg button').forEach(b => b.classList.toggle('on', b.dataset.s === s));
+  renderAll();
+}
+
+async function ensureItemsLoaded() {
+  const jobs = [];
+  STORES.forEach(st => {
+    if (SH[st].itemsLoaded) return;
+    jobs.push(db.ref(`${HISTORY_PATH}/${st}/items`).once('value').then(snap => {
+      const val = snap.val() || {};
+      Object.entries(val).forEach(([ym, items]) => { if (!SH[st].items[ym]) SH[st].items[ym] = items; });
+      SH[st].itemsLoaded = true;
+    }).catch(noteSaveProblem));
+  });
+  if (!namesLoaded) {
+    jobs.push(db.ref(`${HISTORY_PATH}/names`).once('value').then(snap => {
+      itemNames = Object.assign({}, snap.val() || {}, itemNames);
+      namesLoaded = true;
+    }).catch(noteSaveProblem));
+  }
+  if (jobs.length) { $('items-hint').textContent = 'Loading saved item data…'; await Promise.all(jobs); }
+}
+
+function storesInView() { return storeView === 'both' ? STORES : [storeView]; }
+
+function monthsForDisplay() {
+  const stores = storesInView();
+  const saved = new Set();
+  stores.forEach(st => Object.keys(SH[st].summary).forEach(k => saved.add(k)));
+  if (rangeMode === 'year') return listMonths(`${now.getFullYear()}-01`, CUR_KEY);
+  if (rangeMode === 'custom') {
+    const f = $('r-from').value, t = $('r-to').value;
+    if (!f || !t || f > t) return [];
+    return listMonths(f, t);
+  }
+  if (!saved.size) return [];
+  const first = [...saved].sort()[0];
+  return listMonths(first, CUR_KEY);
+}
+
+function monthTotals(ym) {
+  const t = { r: 0, rf: 0, gross: 0, disc: 0, net: 0, cost: 0, units: 0, has: false, by: {} };
+  storesInView().forEach(st => {
+    const s = SH[st].summary[ym];
+    if (!s) return;
+    t.has = true;
+    ['r', 'rf', 'gross', 'disc', 'net', 'cost', 'units'].forEach(k => { t[k] += Number(s[k]) || 0; });
+    t.by[st] = Number(s.net) || 0;
+  });
+  t.gp = t.net - t.cost;
+  return t;
+}
+
+// ═══════════════════════════════════════════════════════
+// RENDER — MONTHLY
+// ═══════════════════════════════════════════════════════
+function renderAll() {
+  if (viewMode === 'items') { renderItems(); return; }
+  const months = monthsForDisplay();
+  const rows = months.map(ym => ({ ym, t: monthTotals(ym) }));
+  const have = rows.filter(r => r.t.has);
+
+  // KPIs
+  const tot = have.reduce((a, r) => {
+    ['r', 'gross', 'disc', 'net', 'cost', 'gp'].forEach(k => { a[k] += r.t[k]; });
+    return a;
+  }, { r: 0, gross: 0, disc: 0, net: 0, cost: 0, gp: 0 });
+  const firstSaved = have.length ? ymLabel(have[0].ym) : null;
+  $('kpis').innerHTML = [
+    ['Net sales', peso(tot.net), have.length ? `${have.length} month${have.length > 1 ? 's' : ''}${firstSaved ? ' since ' + firstSaved : ''}` : 'Nothing gathered yet'],
+    ['Gross profit', peso(tot.gp), tot.net ? (tot.gp / tot.net * 100).toFixed(1) + '% of net sales' : ''],
+    ['Allowance', peso(tot.cost), 'Net sales − gross profit'],
+    ['Receipts', num(tot.r), have.length ? 'Avg ' + peso(tot.net / Math.max(1, have.length)) + ' net / month' : '']
+  ].map(([k, v, s]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('');
+
+  // chart
+  const max = Math.max(1, ...rows.map(r => r.t.net));
+  $('chart').innerHTML = rows.length ? rows.map(({ ym, t }) => {
+    const h = v => Math.max(0, v / max * 118);
+    const stack = storeView === 'both'
+      ? `<div class="seg-main" style="height:${h(t.by.main || 0)}px"></div><div class="seg-branch" style="height:${h(t.by.branch || 0)}px"></div>`
+      : `<div class="seg-main" style="height:${h(t.net)}px;${storeView === 'branch' ? 'background:var(--green)' : ''}"></div>`;
+    return `<div class="col" title="${esc(ymLabel(ym))}: ${peso(t.net)}"><div class="stack">${stack}</div><div class="lbl">${MONTHS[ymParse(ym).m]}${ymParse(ym).m === 0 || ym === rows[0].ym ? ' ' + String(ymParse(ym).y).slice(2) : ''}</div></div>`;
+  }).join('') : '<div class="empty" style="width:100%">Choose a period and press Gather sales.</div>';
+  $('legend').innerHTML = storeView === 'both'
+    ? '<span><i style="background:var(--accent)"></i>Main</span><span><i style="background:var(--green)"></i>Branch</span>' : '';
+
+  // table, newest first, with a subtotal per year when the period spans several years
+  if (!rows.length) { $('month-table').innerHTML = '<div class="empty">No months to show for this period.</div>'; return; }
+  const years = [...new Set(rows.map(r => ymParse(r.ym).y))].sort((a, b) => b - a);
+  let html = '<table><thead><tr><th>Month</th><th>Receipts</th><th>Gross sales</th><th>Discounts</th><th>Net sales</th><th>Allowance</th><th>Gross profit</th></tr></thead><tbody>';
+  years.forEach(y => {
+    const yr = rows.filter(r => ymParse(r.ym).y === y).sort((a, b) => b.ym.localeCompare(a.ym));
+    yr.forEach(({ ym, t }) => {
+      if (!t.has) { html += `<tr><td>${ymLabel(ym)}</td><td class="muted" colspan="6">Not gathered yet</td></tr>`; return; }
+      html += `<tr><td>${ymLabel(ym)}${ym === CUR_KEY ? '<span class="tag">so far</span>' : ''}</td><td>${num(t.r)}</td><td>${peso(t.gross)}</td><td>${peso(t.disc)}</td><td>${peso(t.net)}</td><td>${peso(t.cost)}</td><td>${peso(t.gp)}</td></tr>`;
+    });
+    if (years.length > 1) {
+      const s = yr.filter(r => r.t.has).reduce((a, r) => { ['r', 'gross', 'disc', 'net', 'cost', 'gp'].forEach(k => { a[k] += r.t[k]; }); return a; }, { r: 0, gross: 0, disc: 0, net: 0, cost: 0, gp: 0 });
+      html += `<tr class="sub"><td>${y} total</td><td>${num(s.r)}</td><td>${peso(s.gross)}</td><td>${peso(s.disc)}</td><td>${peso(s.net)}</td><td>${peso(s.cost)}</td><td>${peso(s.gp)}</td></tr>`;
+    }
+  });
+  html += `<tr class="total"><td>All shown</td><td>${num(tot.r)}</td><td>${peso(tot.gross)}</td><td>${peso(tot.disc)}</td><td>${peso(tot.net)}</td><td>${peso(tot.cost)}</td><td>${peso(tot.gp)}</td></tr>`;
+  html += '</tbody></table>';
+  $('month-table').innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════
+// RENDER — ITEMS
+// ═══════════════════════════════════════════════════════
+function itemRows() {
+  const months = monthsForDisplay().filter(ym => monthTotals(ym).has);
+  const map = {};
+  months.forEach(ym => {
+    storesInView().forEach(st => {
+      const its = SH[st].items[ym];
+      if (!its) return;
+      Object.entries(its).forEach(([k, v]) => {
+        const o = map[k] || (map[k] = { k, q: 0, s: 0, byMonth: {} });
+        o.q += Number(v.q) || 0; o.s += Number(v.s) || 0;
+        o.byMonth[ym] = (o.byMonth[ym] || 0) + (Number(v.q) || 0);
+      });
+    });
+  });
+  return { months, rows: Object.values(map) };
+}
+
+function renderItems() {
+  const { months, rows } = itemRows();
+  const q = $('item-search').value.trim().toLowerCase();
+  const last3 = months.slice(-3);
+  let list = rows.map(o => ({ ...o, name: itemNames[o.k] || o.k, avg: o.q / Math.max(1, months.length), avg3: last3.reduce((s, m) => s + (o.byMonth[m] || 0), 0) / Math.max(1, last3.length) }));
+  if (q) list = list.filter(o => o.name.toLowerCase().includes(q));
+  list.sort((a, b) => b.q - a.q);
+  const shown = list.slice(0, 300);
+
+  $('items-hint').textContent = months.length
+    ? `${num(list.length)} items across ${months.length} month${months.length > 1 ? 's' : ''}${list.length > shown.length ? ' · showing the top 300, use search to find others' : ''}`
+    : '';
+  if (!months.length) { $('items-table').innerHTML = '<div class="empty">Nothing gathered for this period yet. Press Gather sales first.</div>'; return; }
+  if (!list.length) { $('items-table').innerHTML = '<div class="empty">No item data saved for these months. Re-gather with “Re-download months already saved” ticked.</div>'; return; }
+
+  $('items-table').innerHTML = '<table><thead><tr><th>Item</th><th>Qty sold</th><th>Net sales</th><th>Avg / month</th><th>Last 3 mo avg</th></tr></thead><tbody>' +
+    shown.map(o => `<tr><td class="name">${esc(o.name)}</td><td>${num(o.q)}</td><td>${peso(o.s)}</td><td>${o.avg.toFixed(1)}</td><td>${o.avg3.toFixed(1)}</td></tr>`).join('') +
+    '</tbody></table>';
+}
+
+// ═══════════════════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════════════════
+function csvCell(v) { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function download(name, text) {
+  const blob = new Blob(['\ufeff' + text], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function exportCSV() {
+  const label = storeView === 'both' ? 'combined' : storeView;
+  if (viewMode === 'items') {
+    const { months, rows } = itemRows();
+    if (!rows.length) return showNotice('No item data to export yet.', 'warn');
+    const head = ['Item', 'Qty sold', 'Net sales', ...months.map(ymLabel)];
+    const lines = [head.map(csvCell).join(',')];
+    rows.sort((a, b) => b.q - a.q).forEach(o => {
+      lines.push([itemNames[o.k] || o.k, r2(o.q), r2(o.s), ...months.map(m => r2(o.byMonth[m] || 0))].map(csvCell).join(','));
+    });
+    download(`items-sold-${label}.csv`, lines.join('\n'));
+  } else {
+    const lines = [['Month', 'Store', 'Receipts', 'Refunds', 'Gross sales', 'Discounts', 'Net sales', 'Allowance', 'Gross profit'].join(',')];
+    monthsForDisplay().forEach(ym => {
+      STORES.filter(st => storeView === 'both' || storeView === st).forEach(st => {
+        const s = SH[st].summary[ym];
+        if (!s) return;
+        lines.push([ymLabel(ym), STORE_NAMES[st], s.r, s.rf, s.gross, s.disc, s.net, s.cost, r2(s.net - s.cost)].map(csvCell).join(','));
+      });
+    });
+    if (lines.length === 1) return showNotice('Nothing to export yet.', 'warn');
+    download(`monthly-sales-${label}.csv`, lines.join('\n'));
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if ((e.key === 'Enter') && !$('login').classList.contains('hidden')) doLogin();
+});
+renderAll();
+initFirebase();
+</script>
+</body>
+</html>

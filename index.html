@@ -173,6 +173,7 @@
   <div class="tabs">
     <div class="seg" id="view-seg">
       <button data-v="monthly" class="on" onclick="setView('monthly')">Monthly sales</button>
+      <button data-v="daily" onclick="setView('daily')">Daily sales</button>
       <button data-v="items" onclick="setView('items')">Items sold</button>
     </div>
     <div class="seg" id="store-seg">
@@ -191,6 +192,18 @@
       <div class="legend" id="legend"></div>
     </div>
     <div class="panel tbl-wrap" id="month-table"></div>
+  </div>
+
+  <div id="view-daily" class="hidden">
+    <div class="kpis" id="d-kpis"></div>
+    <div class="panel">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;">
+        <select class="search" id="d-month" style="width:auto;min-width:150px;" onchange="dailyMonth=this.value;renderDaily()"></select>
+        <span class="hint" style="margin:0" id="d-hint"></span>
+      </div>
+      <div class="chart" id="d-chart"></div>
+    </div>
+    <div class="panel tbl-wrap" id="d-table"></div>
   </div>
 
   <div id="view-items" class="hidden">
@@ -240,6 +253,8 @@ let rangeMode = 'year';
 let viewMode = 'monthly';
 let storeView = 'both';
 let busy = false, aborted = false, warnedSave = false;
+let dailyMonth = '';
+const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 // ═══════════════════════════════════════════════════════
 // SMALL HELPERS
@@ -362,8 +377,15 @@ async function lvGet(path, qs, token) {
     }
     if (res.status === 401 || res.status === 403) throw new Error('Loyverse rejected the token. Save it again from Stockr (Sync Loyverse).');
     if (res.status >= 500) { lastErr = new Error('Loyverse error ' + res.status); await sleep(1500 * (attempt + 1)); continue; }
-    if (!res.ok) throw new Error('Loyverse error ' + res.status);
+    if (!res.ok) {
+      let body = '';
+      try { body = (await res.text()).replace(/\s+/g, ' ').slice(0, 220); } catch (e) { /* ignore */ }
+      throw new Error('Loyverse error ' + res.status + (body ? ' — ' + body : ''));
+    }
     return res.json();
+  }
+  if (lastErr && lastErr.name === 'TypeError') {
+    throw new Error(`Can't reach the Loyverse proxy from ${location.origin === 'null' ? 'a local file (file://)' : location.origin}. Open this page from your GitHub Pages link and make sure the Cloudflare Worker allows that address.`);
   }
   throw lastErr || new Error('Loyverse is busy — try again in a minute.');
 }
@@ -374,7 +396,7 @@ async function lvGet(path, qs, token) {
 // subtracted. Cancelled receipts are ignored. Gross profit = net − item cost.
 // ═══════════════════════════════════════════════════════
 function newAcc() {
-  return { summary: { r: 0, rf: 0, gross: 0, disc: 0, net: 0, cost: 0, units: 0 }, items: {}, names: {} };
+  return { summary: { r: 0, rf: 0, gross: 0, disc: 0, net: 0, cost: 0, units: 0 }, items: {}, names: {}, days: {} };
 }
 function safeKey(k) { return String(k).replace(/[.#$\[\]\/]/g, '_'); }
 
@@ -393,12 +415,19 @@ function addReceipt(acc, r) {
   S.disc += sign * disc;
   S.gross += sign * (net + disc);
 
+  // bucket by the day the sale happened (device time, Philippines)
+  const rd = new Date(r.receipt_date || r.created_at);
+  const dd = isNaN(rd.getTime()) ? null : String(rd.getDate()).padStart(2, '0');
+  const day = dd ? (acc.days[dd] || (acc.days[dd] = { r: 0, net: 0, cost: 0 })) : null;
+  if (day) { if (!refund) day.r += 1; day.net += sign * net; }
+
   (r.line_items || []).forEach(li => {
     const qty = Math.abs(Number(li.quantity) || 0);
     const cost = Math.abs(Number(li.cost_total)) || (Math.abs(Number(li.cost) || 0) * qty);
     const lineNet = Math.abs(Number(li.total_money) || 0);
     S.cost += sign * cost;
     S.units += sign * qty;
+    if (day) day.cost += sign * cost;
     const key = safeKey(li.variant_id || li.item_id || ('n_' + (li.item_name || 'unknown')));
     const it = acc.items[key] || (acc.items[key] = { q: 0, s: 0 });
     it.q += sign * qty;
@@ -410,6 +439,8 @@ function addReceipt(acc, r) {
 function finishAcc(acc) {
   const S = acc.summary;
   ['gross', 'disc', 'net', 'cost', 'units'].forEach(k => { S[k] = r2(S[k]); });
+  S.d = {};   // daily figures: day → [receipts, net sales, cost]
+  Object.entries(acc.days).forEach(([k, v]) => { S.d[k] = [v.r, r2(v.net), r2(v.cost)]; });
   const items = {};
   Object.entries(acc.items).forEach(([k, v]) => {
     const q = r2(v.q), s = r2(v.s);
@@ -509,21 +540,26 @@ async function gather() {
 // returns number of sales receipts found in that month
 async function gatherMonth(ctx, ym, label) {
   const have = SH[ctx.store].summary[ym];
-  if (have && ym < CUR_KEY && !ctx.refresh) return have.r;     // finished month already saved
+  if (have && have.d && ym < CUR_KEY && !ctx.refresh) return have.r;   // finished month already saved (with daily figures)
 
   const { min, max } = monthBounds(ym);
   const acc = newAcc();
   let cursor = null, seen = 0;
-  do {
-    const qs = new URLSearchParams({ limit: 250, store_id: ctx.storeId, created_at_min: min, created_at_max: max });
-    if (cursor) qs.set('cursor', cursor);
-    const data = await lvGet('receipts', qs, ctx.token);
-    const list = data.receipts || [];
-    list.forEach(r => addReceipt(acc, r));
-    seen += list.length;
-    setProgressText(`${label} — ${num(seen)} receipts read…`);
-    cursor = data.cursor || null;
-  } while (cursor);
+  try {
+    do {
+      const qs = new URLSearchParams({ limit: 250, store_id: ctx.storeId, created_at_min: min, created_at_max: max });
+      if (cursor) qs.set('cursor', cursor);
+      const data = await lvGet('receipts', qs, ctx.token);
+      const list = data.receipts || [];
+      list.forEach(r => addReceipt(acc, r));
+      seen += list.length;
+      setProgressText(`${label} — ${num(seen)} receipts read…`);
+      cursor = data.cursor || null;
+    } while (cursor);
+  } catch (e) {
+    if (e.message !== 'stopped') e.message = `${label}: ${e.message}`;   // say which month failed
+    throw e;
+  }
 
   const out = finishAcc(acc);
   if (out.summary.r === 0 && out.summary.rf === 0) return 0;     // nothing sold; don't store empty months
@@ -561,6 +597,7 @@ function setView(v) {
   viewMode = v;
   document.querySelectorAll('#view-seg button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
   $('view-monthly').classList.toggle('hidden', v !== 'monthly');
+  $('view-daily').classList.toggle('hidden', v !== 'daily');
   $('view-items').classList.toggle('hidden', v !== 'items');
   if (v === 'items') ensureItemsLoaded().then(renderItems);
   else renderAll();
@@ -625,6 +662,7 @@ function monthTotals(ym) {
 // ═══════════════════════════════════════════════════════
 function renderAll() {
   if (viewMode === 'items') { renderItems(); return; }
+  if (viewMode === 'daily') { renderDaily(); return; }
   const months = monthsForDisplay();
   const rows = months.map(ym => ({ ym, t: monthTotals(ym) }));
   const have = rows.filter(r => r.t.has);
@@ -672,6 +710,82 @@ function renderAll() {
   html += `<tr class="total"><td>All shown</td><td>${num(tot.r)}</td><td>${peso(tot.gross)}</td><td>${peso(tot.disc)}</td><td>${peso(tot.net)}</td><td>${peso(tot.cost)}</td><td>${peso(tot.gp)}</td></tr>`;
   html += '</tbody></table>';
   $('month-table').innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════
+// RENDER — DAILY
+// ═══════════════════════════════════════════════════════
+function dailyTotals(ym) {
+  const days = {}; let hasD = false, hasMonth = false;
+  storesInView().forEach(st => {
+    const s = SH[st].summary[ym];
+    if (!s) return;
+    hasMonth = true;
+    if (!s.d) return;
+    hasD = true;
+    Object.entries(s.d).forEach(([dd, v]) => {
+      const o = days[dd] || (days[dd] = { r: 0, net: 0, cost: 0 });
+      o.r += Number(v[0]) || 0; o.net += Number(v[1]) || 0; o.cost += Number(v[2]) || 0;
+    });
+  });
+  return { days, hasD, hasMonth };
+}
+
+function renderDaily() {
+  const saved = new Set();
+  storesInView().forEach(st => Object.keys(SH[st].summary).forEach(k => saved.add(k)));
+  const months = [...saved].sort().reverse();
+  const sel = $('d-month');
+  if (!months.length) {
+    sel.innerHTML = '';
+    $('d-kpis').innerHTML = '';
+    $('d-chart').innerHTML = '';
+    $('d-hint').textContent = '';
+    $('d-table').innerHTML = '<div class="empty">Nothing gathered yet. Press Gather sales, then come back here.</div>';
+    return;
+  }
+  if (!months.includes(dailyMonth)) dailyMonth = months[0];
+  sel.innerHTML = months.map(m => `<option value="${m}"${m === dailyMonth ? ' selected' : ''}>${ymLabel(m)}</option>`).join('');
+
+  const { days, hasD } = dailyTotals(dailyMonth);
+  if (!hasD) {
+    $('d-kpis').innerHTML = ''; $('d-chart').innerHTML = ''; $('d-hint').textContent = '';
+    $('d-table').innerHTML = '<div class="empty">This month was saved before daily figures were added. Press Gather sales to fill them in.</div>';
+    return;
+  }
+  const { y, m } = ymParse(dailyMonth);
+  const lastDay = dailyMonth === CUR_KEY ? now.getDate() : new Date(y, m + 1, 0).getDate();
+  const list = [];
+  for (let d = 1; d <= lastDay; d++) {
+    const k = String(d).padStart(2, '0');
+    const v = days[k] || { r: 0, net: 0, cost: 0 };
+    list.push({ d, k, wd: WEEKDAYS[new Date(y, m, d).getDay()], ...v, gp: v.net - v.cost, sold: v.r > 0 || v.net !== 0 });
+  }
+  const sold = list.filter(x => x.sold);
+  const tot = sold.reduce((a, x) => { a.r += x.r; a.net += x.net; a.cost += x.cost; return a; }, { r: 0, net: 0, cost: 0 });
+  const best = sold.reduce((b, x) => (!b || x.net > b.net ? x : b), null);
+
+  $('d-hint').textContent = dailyMonth === CUR_KEY ? 'Month in progress' : '';
+  $('d-kpis').innerHTML = [
+    ['Net sales', peso(tot.net), `${sold.length} day${sold.length === 1 ? '' : 's'} with sales`],
+    ['Average per day', peso(sold.length ? tot.net / sold.length : 0), 'Days with sales only'],
+    ['Best day', best ? peso(best.net) : '—', best ? `${best.wd} ${ymLabel(dailyMonth).split(' ')[0]} ${best.d}` : ''],
+    ['Receipts', num(tot.r), sold.length ? `About ${Math.round(tot.r / sold.length)} per day` : '']
+  ].map(([k, v, s]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('');
+
+  const max = Math.max(1, ...list.map(x => x.net));
+  $('d-chart').innerHTML = list.map(x =>
+    `<div class="col" style="flex:1 0 26px;min-width:26px" title="${x.wd} ${x.d}: ${peso(x.net)}"><div class="stack"><div class="seg-main" style="height:${Math.max(0, x.net / max * 118)}px;${storeView === 'branch' ? 'background:var(--green)' : ''}"></div></div><div class="lbl">${x.d}</div></div>`
+  ).join('');
+
+  let html = '<table><thead><tr><th>Date</th><th>Receipts</th><th>Net sales</th><th>Allowance</th><th>Gross profit</th></tr></thead><tbody>';
+  list.slice().reverse().forEach(x => {
+    html += x.sold
+      ? `<tr><td>${x.wd}, ${ymLabel(dailyMonth).split(' ')[0]} ${x.d}</td><td>${num(x.r)}</td><td>${peso(x.net)}</td><td>${peso(x.cost)}</td><td>${peso(x.gp)}</td></tr>`
+      : `<tr><td>${x.wd}, ${ymLabel(dailyMonth).split(' ')[0]} ${x.d}</td><td class="muted" colspan="4">No sales</td></tr>`;
+  });
+  html += `<tr class="total"><td>Month total</td><td>${num(tot.r)}</td><td>${peso(tot.net)}</td><td>${peso(tot.cost)}</td><td>${peso(tot.net - tot.cost)}</td></tr></tbody></table>`;
+  $('d-table').innerHTML = html;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -728,6 +842,20 @@ function download(name, text) {
 
 function exportCSV() {
   const label = storeView === 'both' ? 'combined' : storeView;
+  if (viewMode === 'daily') {
+    const lines = [['Date', 'Store', 'Receipts', 'Net sales', 'Allowance', 'Gross profit'].join(',')];
+    const { y, m } = ymParse(dailyMonth || CUR_KEY);
+    STORES.filter(st => storeView === 'both' || storeView === st).forEach(st => {
+      const s = SH[st].summary[dailyMonth];
+      if (!s || !s.d) return;
+      Object.keys(s.d).sort().forEach(dd => {
+        const v = s.d[dd];
+        lines.push([`${y}-${String(m + 1).padStart(2, '0')}-${dd}`, STORE_NAMES[st], v[0], v[1], v[2], r2(v[1] - v[2])].map(csvCell).join(','));
+      });
+    });
+    if (lines.length === 1) return showNotice('No daily figures to export for this month yet.', 'warn');
+    return download(`daily-sales-${dailyMonth}-${label}.csv`, lines.join('\n'));
+  }
   if (viewMode === 'items') {
     const { months, rows } = itemRows();
     if (!rows.length) return showNotice('No item data to export yet.', 'warn');
